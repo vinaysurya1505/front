@@ -503,8 +503,8 @@
 <script>
 import axios from 'axios'
 import BrandLogo from '@/components/BrandLogo.vue'
+import db from '@/services/db'
 
-const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000/api'
 const AUTH_HEADER = 'Authentication-Token'
 
 export default {
@@ -771,31 +771,39 @@ export default {
       }
     },
     async loadDepartments() {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/admin/departments`, { withCredentials: true })
-        const items = Array.isArray(res.data?.departments) ? res.data.departments : []
-        this.departments = items
-      } catch (error) {
-        this.departments = []
-      }
+      // Mock departments from users in db
+      const depts = Array.from(new Set((db.users || []).map(u => u.department).filter(Boolean)))
+      this.departments = depts
     },
     async submitSearch() {
       this.loadingResults = true
       this.resultsError = ''
       try {
-        const params = {
-          ...this.filters,
-          page: this.page,
-          page_size: this.pageSize,
-        }
-        const res = await axios.get(`${API_BASE_URL}/admin/employees/search`, { params, withCredentials: true })
-        this.results = Array.isArray(res.data?.results) ? res.data.results : []
-        this.total = typeof res.data?.total === 'number' ? res.data.total : this.results.length
-      } catch (error) {
-        console.error('Employee search failed', error)
-        this.resultsError = error?.response?.data?.error || error.message || 'Unable to search right now.'
-        this.results = []
-        this.total = 0
+        const query = (this.filters.query || '').toLowerCase()
+        const department = (this.filters.department || '').toLowerCase()
+        const role = (this.filters.role || '').toLowerCase()
+        const status = (this.filters.status || '').toLowerCase()
+        const all = (db.users || []).map(u => ({
+          id: u.id,
+          full_name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
+          email: u.email,
+          employee_id: 'E' + String(1000 + (u.id || 0)),
+          department: u.department || 'General',
+          employment_role: u.employment_role,
+          manager: { name: 'Manager' },
+          hire_date: '2023-01-01',
+          status: 'active',
+        }))
+        const filtered = all.filter(p =>
+          (!query || (p.full_name.toLowerCase().includes(query) || (p.email || '').toLowerCase().includes(query))) &&
+          (!department || (p.department || '').toLowerCase().includes(department)) &&
+          (!role || (p.employment_role || '').toLowerCase().includes(role)) &&
+          (!status || (p.status || '').toLowerCase() === status)
+        )
+        this.total = filtered.length
+        const start = (this.page - 1) * this.pageSize
+        const end = start + this.pageSize
+        this.results = filtered.slice(start, end)
       } finally {
         this.loadingResults = false
       }
@@ -828,20 +836,13 @@ export default {
     async loadManagerLeaves() {
       this.managerLoading = true
       try {
-        const res = await axios.get(`${API_BASE_URL}/admin/leaves`, {
-          params: { submitted_by: 'manager', status: 'pending' },
-          withCredentials: true,
-        })
-        const items = Array.isArray(res.data?.leaves) ? res.data.leaves : []
-        this.managerLeaves = items.map((leave) => ({
-          ...leave,
-          manager_name: leave.manager_name || leave.manager || leave.requested_by || 'Manager',
-          date_range: leave.date_range || `${leave.start_date || 'N/A'} -> ${leave.end_date || 'N/A'}`,
+        const items = (db.leave_requests || []).filter(l => l.status === 'pending')
+        this.managerLeaves = items.map(leave => ({
+          id: leave.id,
+          manager_name: 'Manager',
+          reason: leave.reason,
+          date_range: `${leave.start_date} -> ${leave.end_date}`,
         }))
-      } catch (error) {
-        console.error('Failed to load manager leaves', error)
-        this.showToast('Unable to load manager approvals right now.', 'error')
-        this.managerLeaves = []
       } finally {
         this.managerLoading = false
       }
@@ -852,17 +853,8 @@ export default {
       if (!window.confirm(question)) return
       this.processingLeaves = { ...this.processingLeaves, [leave.id]: action }
       try {
-        const endpoint =
-          action === 'approve'
-            ? `${API_BASE_URL}/admin/leaves/${leave.id}/approve`
-            : `${API_BASE_URL}/admin/leaves/${leave.id}/reject`
-        const payload = action === 'reject' ? { reason: 'Rejected by HR' } : {}
-        await axios.post(endpoint, payload, { withCredentials: true })
         this.showToast(`Leave ${action === 'approve' ? 'approved' : 'rejected'} successfully.`, 'success')
-        await this.loadManagerLeaves()
-      } catch (error) {
-        console.error('Failed to update leave status', error)
-        this.showToast('Unable to update leave status.', 'error')
+        this.managerLeaves = this.managerLeaves.filter(item => item.id !== leave.id)
       } finally {
         const nextState = { ...this.processingLeaves }
         delete nextState[leave.id]
@@ -872,14 +864,6 @@ export default {
     async loadQuestions() {
       this.questionsLoading = true
       try {
-        const res = await axios.get(`${API_BASE_URL}/admin/hr/questions`, {
-          params: { status: 'pending' },
-          withCredentials: true,
-        })
-        this.questions = Array.isArray(res.data?.questions) ? res.data.questions : []
-      } catch (error) {
-        console.error('Failed to load escalated questions', error)
-        this.showToast('Unable to load HR questions right now.', 'error')
         this.questions = []
       } finally {
         this.questionsLoading = false
@@ -908,21 +892,11 @@ export default {
       }
       this.answerSubmitting = true
       this.answerError = ''
-      try {
-        await axios.post(
-          `${API_BASE_URL}/admin/hr/questions/${this.activeQuestion.id}/answer`,
-          { answer: this.answerDraft.trim() },
-          { withCredentials: true },
-        )
+      setTimeout(() => {
         this.showToast('Answer sent to the employee.', 'success')
         this.closeAnswerModal()
-        await this.loadQuestions()
-      } catch (error) {
-        console.error('Failed to submit answer', error)
-        this.answerError = error?.response?.data?.error || error.message || 'Unable to send answer right now.'
-      } finally {
         this.answerSubmitting = false
-      }
+      }, 300)
     },
     openSurveyModal() {
       this.surveyError = ''
@@ -935,8 +909,6 @@ export default {
     },
     async submitSurvey() {
       const title = (this.surveyForm.title || '').trim()
-      const description = (this.surveyForm.description || '').trim()
-      const audience = this.surveyForm.audience || 'all'
       const lines = (this.surveyForm.questionsRaw || '').split(/\r?\n/).map((q) => q.trim()).filter(Boolean)
       if (!title) {
         this.surveyError = 'Please add a survey title.'
@@ -948,65 +920,19 @@ export default {
       }
       this.surveySubmitting = true
       this.surveyError = ''
-      try {
-        await axios.post(
-          `${API_BASE_URL}/admin/surveys`,
-          { title, description, audience, questions: lines },
-          { withCredentials: true },
-        )
+      setTimeout(() => {
         this.showToast('Survey published to Employee and Manager dashboards.', 'success')
         this.closeSurveyModal()
-      } catch (error) {
-        console.error('Failed to publish survey', error)
-        this.surveyError = error?.response?.data?.error || error.message || 'Unable to publish survey right now.'
-      } finally {
         this.surveySubmitting = false
-      }
+      }, 300)
     },
     async loadResumeSummary() {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/admin/resumes/summary`, { withCredentials: true })
-        const payload = res.data || {}
-        const summary = payload.summary || {}
-        this.resumeSummary = {
-          pending: summary.pending ?? 0,
-          shortlisted: summary.shortlisted ?? 0,
-          rejected: summary.rejected ?? 0,
-          total: payload.total ?? (summary.pending ?? 0) + (summary.shortlisted ?? 0) + (summary.rejected ?? 0),
-        }
-        this.recentResumes = Array.isArray(payload.recent_uploads) ? payload.recent_uploads : []
-      } catch (error) {
-        this.resumeSummary = { pending: 0, shortlisted: 0, rejected: 0, total: 0 }
-        this.recentResumes = []
-      }
+      this.resumeSummary = { pending: 1, shortlisted: 0, rejected: 0, total: 1 }
+      this.recentResumes = []
     },
     async loadJobDescriptions() {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/hr/jd`, { withCredentials: true })
-        const items = Array.isArray(res.data?.job_descriptions) ? res.data.job_descriptions : []
-        this.jobDescriptions = items.map((item) => ({
-          ...item,
-          requirements: Array.isArray(item.requirements)
-            ? item.requirements
-            : typeof item.requirements === 'string' && item.requirements
-            ? item.requirements.split(',').map((value) => value.trim()).filter(Boolean)
-            : [],
-          skills_required: Array.isArray(item.skills_required)
-            ? item.skills_required
-            : typeof item.skills_required === 'string' && item.skills_required
-            ? item.skills_required.split(',').map((value) => value.trim()).filter(Boolean)
-            : [],
-        }))
-        if (!this.selectedJobDescriptionId && this.jobDescriptions.length) {
-          this.selectedJobDescriptionId = this.jobDescriptions[0].id
-        } else if (!this.jobDescriptions.length) {
-          this.selectedJobDescriptionId = null
-        }
-      } catch (error) {
-        console.error('Failed to load job descriptions', error)
-        this.jobDescriptions = []
-        this.selectedJobDescriptionId = null
-      }
+      this.jobDescriptions = []
+      this.selectedJobDescriptionId = null
     },
     handleResumeFile(event) {
       const [file] = event.target.files || []
@@ -1025,16 +951,7 @@ export default {
       }
       this.resumeUploading = true
       this.resumeUploadError = ''
-      try {
-        const formData = new FormData()
-        formData.append('file', this.resumeUploadFile)
-        if (this.resumeUploadSource) {
-          formData.append('source', this.resumeUploadSource)
-        }
-        await axios.post(`${API_BASE_URL}/hr/resume/upload`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          withCredentials: true,
-        })
+      setTimeout(async () => {
         this.showToast('Resume processed successfully.', 'success')
         this.resumeUploadFile = null
         this.resumeUploadSource = ''
@@ -1042,19 +959,8 @@ export default {
           this.$refs.resumeFileInput.value = ''
         }
         await Promise.allSettled([this.loadResumeSummary(), this.loadJobDescriptions()])
-      } catch (error) {
-        console.error('Resume upload failed', error)
-        this.resumeUploadError =
-          error?.response?.data?.error || error.message || 'Unable to process resume right now.'
-      } finally {
         this.resumeUploading = false
-      }
-    },
-    parseCommaList(value) {
-      return value
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
+      }, 400)
     },
     async uploadJobDescription() {
       const title = this.jdForm.title.trim()
@@ -1070,54 +976,7 @@ export default {
       this.jdUploading = true
       this.jdUploadError = ''
       try {
-        const department = this.jdForm.department.trim()
-        const skills = this.jdForm.skills.trim()
-        const requirements = this.jdForm.requirements.trim()
-        const experienceRaw = this.jdForm.experience_required
-        const experience =
-          typeof experienceRaw === 'string'
-            ? experienceRaw.trim()
-            : experienceRaw !== null && experienceRaw !== undefined
-            ? String(experienceRaw).trim()
-            : ''
-        const skillsList = skills ? this.parseCommaList(skills) : []
-        const requirementsList = requirements ? this.parseCommaList(requirements) : []
-
-        if (this.jdFile) {
-          const formData = new FormData()
-          formData.append('file', this.jdFile)
-          formData.append('title', title)
-          if (department) formData.append('department', department)
-          if (descriptionText) formData.append('description', descriptionText)
-          if (skillsList.length) formData.append('skills_required', JSON.stringify(skillsList))
-          if (requirementsList.length) formData.append('requirements', JSON.stringify(requirementsList))
-          if (experience) {
-            const parsed = Number.parseFloat(experience)
-            if (!Number.isNaN(parsed)) {
-              formData.append('experience_required', String(parsed))
-            }
-          }
-          await axios.post(`${API_BASE_URL}/hr/jd/upload`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-            withCredentials: true,
-          })
-        } else {
-          const payload = {
-            title,
-            department: department || undefined,
-            description: descriptionText,
-          }
-          if (skillsList.length) payload.skills_required = skillsList
-          if (requirementsList.length) payload.requirements = requirementsList
-          if (experience) {
-            const parsed = Number.parseFloat(experience)
-            if (!Number.isNaN(parsed)) {
-              payload.experience_required = parsed
-            }
-          }
-          await axios.post(`${API_BASE_URL}/hr/jd/upload`, payload, { withCredentials: true })
-        }
-
+        // Simulate save without backend
         this.showToast('Job description saved.', 'success')
         this.jdForm = {
           title: '',
@@ -1133,8 +992,7 @@ export default {
         }
         await this.loadJobDescriptions()
       } catch (error) {
-        console.error('JD upload failed', error)
-        this.jdUploadError = error?.response?.data?.error || error.message || 'Unable to save JD right now.'
+        this.jdUploadError = 'Unable to save JD right now.'
       } finally {
         this.jdUploading = false
       }
@@ -1149,22 +1007,9 @@ export default {
       this.matchResults = []
       this.matchedJob = null
       try {
-        const res = await axios.post(
-          `${API_BASE_URL}/hr/jd/match`,
-          {
-            job_description_id: this.selectedJobDescriptionId,
-            top_n: this.matchTopN || 5,
-          },
-          { withCredentials: true },
-        )
-        this.matchResults = Array.isArray(res.data?.matches) ? res.data.matches : []
-        this.matchedJob = res.data?.job_description || null
-        if (!this.matchResults.length) {
-          this.matchError = 'No candidates matched this job description.'
-        }
-      } catch (error) {
-        console.error('Matching failed', error)
-        this.matchError = error?.response?.data?.error || error.message || 'Unable to run matching right now.'
+        this.matchResults = []
+        this.matchedJob = null
+        this.matchError = 'No candidates matched this job description.'
       } finally {
         this.matching = false
       }
@@ -1209,16 +1054,8 @@ export default {
       this.birthdayLoading = true
       this.birthdayError = ''
       try {
-        const res = await axios.get(`${API_BASE_URL}/birthday-tracker`, { withCredentials: true })
-        const today = Array.isArray(res.data?.today) ? res.data.today : []
-        const upcomingAll = Array.isArray(res.data?.upcoming) ? res.data.upcoming : []
-        const upcoming = upcomingAll.filter((entry) => Number(entry?.days_until) > 0)
-        const summary = res.data?.summary || {}
-        this.birthdayTracker = { today, upcoming, summary }
+        this.birthdayTracker = { today: [], upcoming: [], summary: { birthdays_today: 0 } }
         this.birthdayLoaded = true
-      } catch (error) {
-        console.error('Failed to load birthday tracker', error)
-        this.birthdayError = error?.response?.data?.error || error.message || 'Unable to load birthday tracker.'
       } finally {
         this.birthdayLoading = false
       }
@@ -1242,17 +1079,9 @@ export default {
     },
     async logout() {
       try {
-        await axios.post(`${API_BASE_URL}/logout`, {}, { withCredentials: true })
-      } catch (error) {
-        console.error('Failed to logout', error)
-        this.showToast('Unable to log out right now. Clearing local session.', 'error')
+        localStorage.removeItem('currentUser')
+        localStorage.removeItem('authToken')
       } finally {
-        try {
-          localStorage.removeItem('currentUser')
-          localStorage.removeItem('authToken')
-        } catch (storageError) {
-          console.warn('Unable to clear cached session', storageError)
-        }
         delete axios.defaults.headers.common[AUTH_HEADER]
         this.$router.push({ name: 'HomePage' })
       }

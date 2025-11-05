@@ -1512,17 +1512,7 @@ export default {
       if (!notification || !notification.id) {
         return;
       }
-      if (!notification.isRead) {
-        try {
-          await axios.post(
-            `${API_BASE_URL}/notifications/${notification.id}/read`,
-            {},
-            { withCredentials: true },
-          );
-        } catch (error) {
-          console.error('Failed to mark notification as read', error);
-        }
-      }
+      // Local-only: mark as read without network call
       this.notifications = this.notifications.map((item) =>
         item.id === notification.id ? { ...item, is_read: true } : item,
       );
@@ -1613,39 +1603,19 @@ export default {
         this.resignFormError = 'Please share a short reason for resigning.'
         return
       }
-      const payload = {
-        last_day: this.resignForm.last_day,
-        reason: this.resignForm.reason.trim(),
-      }
-      const token = localStorage.getItem('authToken')
-      const headers = token ? { 'Authentication-Token': token } : {}
       this.loading = true
-      axios
-        .post(`${API_BASE_URL}/offboarding/resign`, payload, { headers })
-        .then(() => {
-          this.showToast('Resignation request submitted to HR.', 'info')
-          this.resignationDetails = {
-            status_label: 'Offboarding started',
-            message: 'Your resignation has been recorded. HR will contact you.',
-            last_day: this.resignForm.last_day,
-            reason: this.resignForm.reason.trim(),
-          }
-          this.closeResignModal()
-          this.resignForm = {
-            last_day: '',
-            notice_period: '',
-            reason: '',
-            handover_plan: '',
-            notes: '',
-          }
-        })
-        .catch((error) => {
-          const errMsg = error?.response?.data?.error || error.message || 'Failed to submit resignation'
-          this.resignFormError = errMsg
-        })
-        .finally(() => {
-          this.loading = false
-        })
+      setTimeout(() => {
+        this.showToast('Resignation request submitted to HR.', 'info')
+        this.resignationDetails = {
+          status_label: 'Offboarding started',
+          message: 'Your resignation has been recorded. HR will contact you.',
+          last_day: this.resignForm.last_day,
+          reason: this.resignForm.reason.trim(),
+        }
+        this.closeResignModal()
+        this.resignForm = { last_day: '', notice_period: '', reason: '', handover_plan: '', notes: '' }
+        this.loading = false
+      }, 300)
     },
     openChatbot() {
       this.chatbotPrompt = '';
@@ -1959,16 +1929,11 @@ export default {
       this.$router.push({ name: 'LoginPage', query: { redirect: this.$route.fullPath } });
     },
     async logout() {
-      try {
-        await axios.post(`${API_BASE_URL}/logout`, {}, { withCredentials: true });
-      } catch (error) {
-        console.warn('Logout request failed', error);
-      } finally {
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('authToken');
-        delete axios.defaults.headers.common[AUTH_HEADER];
-        this.$router.push({ name: 'HomePage' });
-      }
+      // Local-only logout
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('authToken');
+      delete axios.defaults.headers.common[AUTH_HEADER];
+      this.$router.push({ name: 'HomePage' });
     },
   },
 };

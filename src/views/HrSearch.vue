@@ -107,9 +107,7 @@
 </template>
 
 <script>
-import axios from 'axios'
-
-const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000/api'
+import db from '@/services/db'
 
 export default {
   name: 'HrSearch',
@@ -150,32 +148,39 @@ export default {
   },
   methods: {
     async loadDepartments() {
-      try {
-        const res = await axios.get(`${API_BASE_URL}/admin/departments`, { withCredentials: true })
-        const items = Array.isArray(res.data?.departments) ? res.data.departments : []
-        this.departments = items
-      } catch (error) {
-        // Optional endpoint, ignore failures
-        this.departments = []
-      }
+      const depts = Array.from(new Set((db.users || []).map(u => u.department).filter(Boolean)))
+      this.departments = depts
     },
     async submitSearch() {
       this.error = ''
       this.loading = true
       try {
-        const params = {
-          ...this.filters,
-          page: this.page,
-          page_size: this.pageSize,
-        }
-        const res = await axios.get(`${API_BASE_URL}/admin/employees/search`, { params, withCredentials: true })
-        this.results = Array.isArray(res.data?.results) ? res.data.results : []
-        this.total = typeof res.data?.total === 'number' ? res.data.total : this.results.length
-      } catch (error) {
-        console.error('Search failed', error)
-        this.error = error?.response?.data?.error || error.message || 'Unable to search right now.'
-        this.results = []
-        this.total = 0
+        const query = (this.filters.query || '').toLowerCase()
+        const department = (this.filters.department || '').toLowerCase()
+        const role = (this.filters.role || '').toLowerCase()
+        const status = (this.filters.status || '').toLowerCase()
+        const all = (db.users || []).map(u => ({
+          id: u.id,
+          full_name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
+          email: u.email,
+          employee_id: 'E' + String(1000 + (u.id || 0)),
+          department: u.department || 'General',
+          employment_role: u.employment_role,
+          manager: { name: 'Manager' },
+          hire_date: '2023-01-01',
+          status: 'active',
+          contact: { email: u.email },
+        }))
+        const filtered = all.filter(p =>
+          (!query || (p.full_name.toLowerCase().includes(query) || (p.email || '').toLowerCase().includes(query))) &&
+          (!department || (p.department || '').toLowerCase().includes(department)) &&
+          (!role || (p.employment_role || '').toLowerCase().includes(role)) &&
+          (!status || (p.status || '').toLowerCase() === status)
+        )
+        this.total = filtered.length
+        const start = (this.page - 1) * this.pageSize
+        const end = start + this.pageSize
+        this.results = filtered.slice(start, end)
       } finally {
         this.loading = false
       }

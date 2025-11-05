@@ -766,6 +766,7 @@
 <script>
 import axios from 'axios';
 import BrandLogo from '@/components/BrandLogo.vue';
+import db from '@/services/db';
 
 const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000/api';
 const AUTH_HEADER = 'Authentication-Token';
@@ -1161,20 +1162,14 @@ export default {
       }
     },
     async fetchProjectAnnouncementFallback() {
-      try {
-        const response = await axios.get(`${API_BASE_URL}/employee/project-announcement`, {
-          withCredentials: true,
-        });
-        const payload = response.data?.project_announcement;
-        if (payload && (payload.title || payload.description)) {
-          this.setProjectAnnouncement(payload, { persist: true });
-          return;
-        }
-      } catch (error) {
-        console.warn('Unable to load project announcement fallback', error);
+      const first = (db.project_announcements && db.project_announcements[0]) || null
+      if (first) {
+        const payload = { title: first.title, description: first.description, lastUpdated: new Date().toISOString() }
+        this.setProjectAnnouncement(payload, { persist: true })
+        return
       }
       if (!this.projectAnnouncement) {
-        this.loadProjectAnnouncement();
+        this.loadProjectAnnouncement()
       }
     },
     handleStorageEvent(event) {
@@ -1193,36 +1188,77 @@ export default {
       this.loading = true;
       this.error = '';
       try {
-        const response = await axios.get(`${API_BASE_URL}/employee/dashboard`, { withCredentials: true });
-        const data = response.data || {};
-        this.profile = data.profile || null;
-        this.leaveSummary = data.leave_summary || null;
-        this.recentLeaves = (data.recent_leaves || []).map((leave) => this.decorateLeave(leave));
-        this.upcomingEvents = data.upcoming_events || [];
-        this.notifications = data.notifications || [];
-        this.projectAssignments = data.project_assignments || null;
-        this.teamOverview = data.team_overview || null;
-        this.chatbot = data.chatbot || null;
-        this.offboarding = data.offboarding || null;
-        const incomingAnnouncement = data.project_announcement;
-        if (incomingAnnouncement && (incomingAnnouncement.title || incomingAnnouncement.description)) {
-          this.setProjectAnnouncement(incomingAnnouncement, { persist: true });
+        const rawUser = localStorage.getItem('currentUser')
+        let me = null
+        try { me = rawUser ? JSON.parse(rawUser) : null } catch (_) { me = null }
+        const user = me || db.users.find(u => u.employment_role === 'employee') || null
+
+        const profile = user
+          ? {
+              full_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username,
+              employment_role: user.employment_role,
+              department: user.department || 'Engineering',
+              job_title: 'Software Engineer',
+              hire_date: '2023-06-01',
+              contact: { email: user.email },
+              manager: { name: 'John Doe' },
+            }
+          : null
+
+        const leaveBalance = { allowance_days: 24, used_days: 5, remaining_days: 19 }
+        const recent_leaves = (db.leave_requests || []).filter(l => !user || l.user_id === user.id).map(l => ({
+          id: l.id,
+          leave_type: l.leave_type,
+          start_date: l.start_date,
+          end_date: l.end_date,
+          status: l.status,
+        }))
+        const leave_summary = {
+          total: recent_leaves.length,
+          by_status: recent_leaves.reduce((acc, l) => { acc[l.status] = (acc[l.status] || 0) + 1; return acc }, {}),
+          balance: leaveBalance,
+        }
+
+        const project_assignments = {
+          active_count: 1,
+          history_count: 3,
+          assignments: [
+            { name: 'Q4 Launch', role: 'Frontend', client: 'TechCorp', summary: 'Feature hardening', start_date: '2025-10-01', end_date: '2025-12-15', is_active: true },
+          ],
+        }
+
+        const teamMembers = db.users.filter(u => u.employment_role !== 'super_admin' && (!user || u.id !== user.id)).slice(0, 4).map(u => ({
+          id: u.id,
+          name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username,
+          email: u.email,
+          employment_role: u.employment_role,
+          is_self: false,
+        }))
+        const team_overview = { members: teamMembers, empty_message: 'No teammates listed.' }
+
+        const upcoming_events = (db.team_events || []).map(e => ({ id: e.id, title: e.title, date: e.start_datetime, description: e.description }))
+        const notifications = (db.notifications || []).map(n => ({ id: n.id, title: n.title, message: n.message, is_read: false, created_at: new Date().toISOString() }))
+        const incomingAnnouncement = (db.project_announcements && db.project_announcements[0])
+          ? { title: db.project_announcements[0].title, description: db.project_announcements[0].description, lastUpdated: new Date().toISOString() }
+          : null
+
+        this.profile = profile
+        this.leaveSummary = leave_summary
+        this.recentLeaves = recent_leaves.map((leave) => this.decorateLeave(leave))
+        this.upcomingEvents = upcoming_events
+        this.notifications = notifications
+        this.projectAssignments = project_assignments
+        this.teamOverview = team_overview
+        this.chatbot = { headline: 'Ask HR anything', subtitle: 'Policies, leave, and more' }
+        this.offboarding = null
+        if (incomingAnnouncement) {
+          this.setProjectAnnouncement(incomingAnnouncement, { persist: true })
         } else {
-          await this.fetchProjectAnnouncementFallback();
+          await this.fetchProjectAnnouncementFallback()
         }
-        await this.loadHrQuestions();
+        await this.loadHrQuestions()
         if (this.profile && this.profile.job_title && !this.careerForm.current_role) {
-          this.careerForm.current_role = this.profile.job_title;
-        }
-      } catch (error) {
-        console.error('Failed to load dashboard', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to load dashboard right now.';
-        this.error = message;
-        if (error.response && error.response.status === 401) {
-          this.redirectToLogin();
+          this.careerForm.current_role = this.profile.job_title
         }
       } finally {
         this.loading = false;
@@ -1238,19 +1274,8 @@ export default {
       this.notificationsLoading = true;
       this.notificationsError = '';
       try {
-        const response = await axios.get(`${API_BASE_URL}/notifications`, {
-          params: { unread_only: true },
-          withCredentials: true
-        });
-        const data = response.data || {};
-        this.notifications = data.notifications || [];
-      } catch (error) {
-        console.error('Failed to load notifications', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to load notifications.';
-        this.notificationsError = message;
+        const items = (db.notifications || []).map(n => ({ id: n.id, title: n.title, message: n.message, is_read: false, created_at: new Date().toISOString() }))
+        this.notifications = items
       } finally {
         this.notificationsLoading = false;
       }
@@ -1259,17 +1284,7 @@ export default {
       if (!notification) {
         return;
       }
-      if (!notification.isRead) {
-        try {
-          await axios.post(
-            `${API_BASE_URL}/notifications/${notification.id}/read`,
-            {},
-            { withCredentials: true }
-          );
-        } catch (error) {
-          console.error('Failed to mark notification as read', error);
-        }
-      }
+      // Local-only: mark as read
       this.notifications = this.notifications.map((item) =>
         item.id === notification.id ? { ...item, is_read: true } : item
       );
@@ -1292,26 +1307,12 @@ export default {
       await this.markNotificationRead(notification, { remove: true });
     },
     async loadHrQuestions() {
-      this.hrQuestionsLoading = true;
-      this.hrQuestionsError = '';
+      this.hrQuestionsLoading = true
+      this.hrQuestionsError = ''
       try {
-        const response = await axios.get(`${API_BASE_URL}/hr/questions`, {
-          params: { status: 'pending,resolved' },
-          withCredentials: true,
-        });
-        const data = response.data || {};
-        const questions = Array.isArray(data.questions) ? data.questions : [];
-        this.hrQuestions = questions.map((item) => this.decorateHrQuestion(item));
-      } catch (error) {
-        console.error('Failed to load HR questions', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to load HR questions.';
-        this.hrQuestionsError = message;
-        this.hrQuestions = [];
+        this.hrQuestions = []
       } finally {
-        this.hrQuestionsLoading = false;
+        this.hrQuestionsLoading = false
       }
     },
     decorateHrQuestion(question) {
@@ -1523,26 +1524,21 @@ export default {
       }
       this.submittingLeave = true;
       try {
-        await axios.post(
-          `${API_BASE_URL}/leave/apply`,
-          {
-            leave_type: this.leaveForm.leave_type,
-            start_date: this.leaveForm.start_date,
-            end_date: this.leaveForm.end_date,
-            reason: this.leaveForm.reason,
-          },
-          { withCredentials: true },
-        );
-        this.showToast('Leave request submitted.', 'success');
-        this.closeLeaveModal();
-        await this.fetchDashboard();
-      } catch (error) {
-        console.error('Failed to submit leave request', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to submit leave request.';
-        this.leaveFormError = message;
+        const newItem = {
+          id: Date.now(),
+          leave_type: this.leaveForm.leave_type,
+          start_date: this.leaveForm.start_date,
+          end_date: this.leaveForm.end_date,
+          status: 'pending',
+        }
+        this.recentLeaves = [this.decorateLeave(newItem), ...this.recentLeaves]
+        const byStatus = this.leaveSummary?.by_status || {}
+        byStatus.pending = (byStatus.pending || 0) + 1
+        const total = (this.leaveSummary?.total || 0) + 1
+        const balance = this.leaveSummary?.balance || { allowance_days: 24, used_days: 5, remaining_days: 19 }
+        this.leaveSummary = { total, by_status: byStatus, balance }
+        this.showToast('Leave request submitted.', 'success')
+        this.closeLeaveModal()
       } finally {
         this.submittingLeave = false;
       }
@@ -1556,16 +1552,13 @@ export default {
       }
       this.withdrawProcessing = { ...this.withdrawProcessing, [leave.id]: true };
       try {
-        await axios.post(`${API_BASE_URL}/leave/${leave.id}/cancel`, {}, { withCredentials: true });
-        this.showToast('Leave request withdrawn.', 'success');
-        await this.fetchDashboard();
-      } catch (error) {
-        console.error('Failed to withdraw leave', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to withdraw leave request.';
-        this.showToast(message, 'error');
+        this.recentLeaves = this.recentLeaves.filter(item => item.id !== leave.id)
+        const byStatus = this.leaveSummary?.by_status || {}
+        if (byStatus.pending) byStatus.pending = Math.max(byStatus.pending - 1, 0)
+        const total = Math.max((this.leaveSummary?.total || 1) - 1, 0)
+        const balance = this.leaveSummary?.balance || { allowance_days: 24, used_days: 5, remaining_days: 19 }
+        this.leaveSummary = { total, by_status: byStatus, balance }
+        this.showToast('Leave request withdrawn.', 'success')
       } finally {
         const next = { ...this.withdrawProcessing };
         delete next[leave.id];
@@ -1589,24 +1582,8 @@ export default {
       }
       this.submittingFeedback = true;
       try {
-        await axios.post(
-          `${API_BASE_URL}/employee/feedback`,
-          {
-            subject: this.feedbackForm.subject || 'General',
-            rating: this.feedbackForm.rating || null,
-            message: this.feedbackForm.message,
-          },
-          { withCredentials: true },
-        );
-        this.showToast('Thanks for sharing your feedback!', 'success');
-        this.closeFeedbackModal();
-      } catch (error) {
-        console.error('Failed to submit feedback', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to send feedback.';
-        this.feedbackError = message;
+        this.showToast('Thanks for sharing your feedback!', 'success')
+        this.closeFeedbackModal()
       } finally {
         this.submittingFeedback = false;
       }
@@ -1638,60 +1615,16 @@ export default {
       this.chatHistory = [...this.chatHistory, pendingMessage];
       this.chatbotLoading = true;
       try {
-        const response = await axios.post(
-          `${API_BASE_URL}/employee/chatbot`,
-          { message: this.chatbotPrompt },
-          { withCredentials: true },
-        );
-        const payload = response.data || {};
-        const normalizeMessage = (entry) => ({
-          sender: entry.sender || 'assistant',
-          content: entry.content || '',
-          timestamp: entry.timestamp || new Date().toISOString(),
-        });
-        if (Array.isArray(payload.messages) && payload.messages.length) {
-          this.chatHistory = payload.messages.map(normalizeMessage);
-        } else {
-          const assistantMessage = normalizeMessage({
-            sender: 'assistant',
-            content: payload.response || 'HR bot has recorded your message.',
-          });
-          this.chatHistory = [...this.chatHistory, assistantMessage];
+        const assistantMessage = {
+          sender: 'assistant',
+          content: 'Thanks! HR will get back to you shortly based on policy.',
+          timestamp: new Date().toISOString(),
         }
-        this.chatbotReply =
-          payload.response ||
-          (Array.isArray(payload.messages)
-            ? payload.messages
-                .filter((msg) => msg.sender !== 'user')
-                .map((msg) => msg.content)
-                .filter(Boolean)
-                .pop() || ''
-            : '');
-        this.chatbotStatus = payload.status || '';
-        this.chatbotReference = payload.reference || '';
-        this.chatbotTicketId = payload.question_log_id || null;
-        if (this.chatbotStatus === 'pending') {
-          this.showToast('Your question has been escalated to HR. We will follow up soon.', 'info');
-        }
-        this.chatbotPrompt = '';
-      } catch (error) {
-        console.error('Chatbot request failed', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to send message right now.';
-        this.showToast(message, 'error');
-        this.chatbotStatus = 'error';
-        this.chatbotReference = '';
-        this.chatbotTicketId = null;
-        this.chatHistory = [
-          ...this.chatHistory,
-          {
-            sender: 'assistant',
-            content: 'Something went wrong while reaching HR. Please try again shortly.',
-            timestamp: new Date().toISOString(),
-          },
-        ];
+        this.chatHistory = [...this.chatHistory, assistantMessage]
+        this.chatbotReply = assistantMessage.content
+        this.chatbotStatus = 'auto_answered'
+        this.chatbotReference = 'HR Policy Handbook'
+        this.chatbotPrompt = ''
       } finally {
         this.chatbotLoading = false;
       }
@@ -1774,16 +1707,10 @@ export default {
       this.toast = null;
     },
     async logout() {
-      try {
-        await axios.post(`${API_BASE_URL}/logout`, {}, { withCredentials: true });
-      } catch (error) {
-        console.warn('Logout request failed', error);
-      } finally {
-        localStorage.removeItem('currentUser');
-        localStorage.removeItem('authToken');
-        delete axios.defaults.headers.common[AUTH_HEADER];
-        this.$router.push({ name: 'HomePage' });
-      }
+      localStorage.removeItem('currentUser');
+      localStorage.removeItem('authToken');
+      delete axios.defaults.headers.common[AUTH_HEADER];
+      this.$router.push({ name: 'HomePage' });
     },
   },
 };
