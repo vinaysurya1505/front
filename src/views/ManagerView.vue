@@ -797,6 +797,7 @@
 <script>
 import axios from 'axios';
 import BrandLogo from '@/components/BrandLogo.vue';
+import db from '@/services/db';
 
 const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000/api';
 const AUTH_HEADER = 'Authentication-Token';
@@ -1180,6 +1181,103 @@ export default {
     }
   },
   methods: {
+    buildMockManagerDashboard() {
+      const rawUser = localStorage.getItem('currentUser');
+      let me = null;
+      try { me = rawUser ? JSON.parse(rawUser) : null } catch (_) { me = null }
+      const manager = me || db.users.find(u => u.employment_role === 'manager') || null;
+
+      const teamMembers = db.users
+        .filter(u => u.employment_role === 'employee')
+        .slice(0, 5)
+        .map(u => ({
+          id: u.id,
+          name: `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || 'Member',
+          email: u.email,
+          employment_role: u.employment_role,
+          is_self: false,
+        }))
+      const profile = manager
+        ? {
+            full_name: `${manager.first_name || ''} ${manager.last_name || ''}`.trim() || manager.username,
+            employment_role: manager.employment_role,
+            department: manager.department || 'Engineering',
+            hire_date: '2022-04-15',
+            contact: { email: manager.email },
+            manager: { name: 'VP Engineering' },
+          }
+        : null
+
+      const leaveBalance = { allowance_days: 24, used_days: 8, remaining_days: 16 }
+      const leaveSummary = { total: 6, by_status: { approved: 3, pending: 2, rejected: 1 }, balance: leaveBalance }
+      const leaveAnalytics = {
+        monthly: [
+          { key: 'Jun', label: 'Jun', approved: 2, pending: 1, rejected: 0 },
+          { key: 'Jul', label: 'Jul', approved: 0, pending: 1, rejected: 1 },
+          { key: 'Aug', label: 'Aug', approved: 1, pending: 0, rejected: 0 },
+          { key: 'Sep', label: 'Sep', approved: 1, pending: 0, rejected: 0 },
+          { key: 'Oct', label: 'Oct', approved: 0, pending: 0, rejected: 0 },
+          { key: 'Nov', label: 'Nov', approved: 1, pending: 0, rejected: 0 },
+        ],
+        status_breakdown: { approved: 5, pending: 2, rejected: 1 },
+        team_status_breakdown: { approved: 8, pending: 1, rejected: 2 },
+      }
+
+      const pendingTeamLeaves = (db.leave_requests || [])
+        .filter(l => l.status === 'pending')
+        .map(l => ({
+          id: l.id,
+          employee_name: (db.users.find(u => u.id === l.user_id)?.first_name || 'Employee') + ' ' + (db.users.find(u => u.id === l.user_id)?.last_name || ''),
+          leave_type: l.leave_type,
+          start_date: l.start_date,
+          end_date: l.end_date,
+          reason: l.reason,
+          status: l.status,
+        }))
+
+      const teamOverview = {
+        team_number: 'ENG-05',
+        total_members: teamMembers.length,
+        members: teamMembers,
+        empty_message: 'Assign teammates to this squad to track their requests here.',
+      }
+
+      const project_announcement = (db.project_announcements && db.project_announcements[0])
+        ? {
+            title: db.project_announcements[0].title,
+            description: db.project_announcements[0].description,
+            lastUpdated: new Date().toISOString(),
+          }
+        : null
+
+      const notifications = (db.notifications || []).map(n => ({
+        id: n.id,
+        title: n.title,
+        message: n.message,
+        category: n.category,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      }))
+
+      const upcoming_events = db.team_events || []
+
+      const chatbot = { headline: 'Ask HR anything', subtitle: 'Policies, approvals, and more' }
+
+      return {
+        profile,
+        leave_summary: leaveSummary,
+        leave_balance: leaveBalance,
+        leave_analytics: leaveAnalytics,
+        team_overview: teamOverview,
+        team_leave_summary: { total: pendingTeamLeaves.length, by_status: { pending: pendingTeamLeaves.length } },
+        pending_team_leaves: pendingTeamLeaves,
+        team_offboarding: [],
+        upcoming_events,
+        notifications,
+        project_announcement,
+        chatbot,
+      }
+    },
     openProjectModal(mode = 'create') {
       this.projectModalMode = mode;
       if (mode === 'edit' && this.projectAnnouncement) {
@@ -1299,27 +1397,10 @@ export default {
         return;
       }
       const payload = { title, description };
-      try {
-        const response = await axios.put(
-          `${API_BASE_URL}/manager/project-announcement`,
-          payload,
-          { withCredentials: true },
-        );
-        const announcement = response.data?.project_announcement || {
-          ...payload,
-          lastUpdated: new Date().toISOString(),
-        };
-        this.setProjectAnnouncementFromPayload(announcement, { persist: true });
-        this.closeProjectModal();
-        this.showToast('Project announcement saved for your team.', 'success');
-      } catch (error) {
-        console.error('Failed to save project announcement', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to save the project announcement right now.';
-        this.projectFormError = message;
-      }
+      const announcement = { ...payload, lastUpdated: new Date().toISOString() }
+      this.setProjectAnnouncementFromPayload(announcement, { persist: true })
+      this.closeProjectModal()
+      this.showToast('Project announcement saved for your team.', 'success')
     },
     confirmRemoveProject() {
       if (!this.projectAnnouncement) {
@@ -1332,21 +1413,8 @@ export default {
       }
     },
     async removeProjectAnnouncement() {
-      try {
-        await axios.delete(`${API_BASE_URL}/manager/project-announcement`, {
-          withCredentials: true,
-        });
-      } catch (error) {
-        console.error('Failed to remove project announcement', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to remove the project announcement right now.';
-        this.showToast(message, 'error');
-        return;
-      }
-      this.setProjectAnnouncementFromPayload(null, { persist: true });
-      this.showToast('Project announcement removed.', 'info');
+      this.setProjectAnnouncementFromPayload(null, { persist: true })
+      this.showToast('Project announcement removed.', 'info')
     },
     loadUserFromStorage() {
       const raw = localStorage.getItem('currentUser');
@@ -1372,8 +1440,7 @@ export default {
       this.loading = true;
       this.error = '';
       try {
-        const dashboardRes = await axios.get(`${API_BASE_URL}/manager/dashboard`, { withCredentials: true });
-        const dashboard = dashboardRes.data || {};
+        const dashboard = this.buildMockManagerDashboard()
         this.profile = dashboard.profile || null;
         this.stats = Array.isArray(dashboard.stats) ? dashboard.stats : [];
         this.leaveSummary = dashboard.leave_summary || null;
@@ -1413,22 +1480,12 @@ export default {
           this.currentUserName = this.profile.full_name;
         }
       } catch (error) {
-        console.error('Failed to load manager dashboard', error);
-        const responsePayload = error.response && error.response.data ? error.response.data : {};
-        const message =
-          responsePayload.error ||
-          responsePayload.message ||
-          error.message ||
-          'Unable to load dashboard right now.';
-        this.error = message;
-        if (error.response && error.response.status === 401) {
-          this.redirectToLogin();
-        }
+        this.error = 'Unable to load dashboard right now.'
       } finally {
         this.loading = false;
       }
     },
-        async loadNotifications(force = false) {
+    async loadNotifications(force = false) {
       if (this.notificationsLoading) {
         return;
       }
@@ -1438,24 +1495,15 @@ export default {
       this.notificationsLoading = true;
       this.notificationsError = '';
       try {
-        const response = await axios.get(`${API_BASE_URL}/notifications`, {
-          params: { unread_only: true },
-          withCredentials: true,
-        });
-        const data = response.data || {};
-        const items = Array.isArray(data.notifications) ? data.notifications : [];
-        if (items.length) {
-          this.notifications = items;
-        } else if (force) {
-          this.notifications = [];
-        }
-      } catch (error) {
-        console.error('Failed to load notifications', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to load notifications.';
-        this.notificationsError = message;
+        const items = (db.notifications || []).map(n => ({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          category: n.category,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        }))
+        this.notifications = items
       } finally {
         this.notificationsLoading = false;
       }
@@ -1727,8 +1775,7 @@ export default {
     },
     async refreshTeamInsights() {
       try {
-        const dashboardRes = await axios.get(`${API_BASE_URL}/manager/dashboard`, { withCredentials: true });
-        const dashboard = dashboardRes.data || {};
+        const dashboard = this.buildMockManagerDashboard()
         if (dashboard.team_leave_summary) {
           this.teamLeaveSummary = dashboard.team_leave_summary;
         }
@@ -1765,16 +1812,11 @@ export default {
     },
     async loadBirthdayTracker() {
       try {
-        const response = await axios.get(`${API_BASE_URL}/birthday-tracker`, {
-          params: { scope: 'team', days: 60 },
-          withCredentials: true,
-        });
-        this.birthdayTracker = response.data || null;
+        const today = []
+        const upcoming = []
+        this.birthdayTracker = { window_days: 30, today, upcoming }
       } catch (error) {
-        console.warn('Unable to load birthday tracker', error);
-        if (!this.birthdayTracker) {
-          this.birthdayTracker = null;
-        }
+        this.birthdayTracker = { window_days: 30, today: [], upcoming: [] }
       }
     },
     decorateTeamLeave(leave) {
@@ -1862,7 +1904,7 @@ export default {
       const text = type.toString().replace(/[_-]/g, ' ');
       return text.charAt(0).toUpperCase() + text.slice(1);
     },
-        async updateLeaveStatus(leave, nextStatus) {
+    async updateLeaveStatus(leave, nextStatus) {
       if (!leave || !leave.id) {
         return;
       }
@@ -1875,28 +1917,17 @@ export default {
       }
       this.processingLeaves = { ...this.processingLeaves, [leave.id]: nextStatus };
       try {
-        await axios.patch(
-          `${API_BASE_URL}/leave/${leave.id}/status`,
-          {
-            status: nextStatus,
-            comment: nextStatus === 'approved' ? 'Approved by manager' : 'Rejected by manager',
-          },
-          { withCredentials: true },
-        );
         this.showToast(
           `Leave ${nextStatus === 'approved' ? 'approved' : 'rejected'} for ${leave.employee_name}.`,
           'success',
         );
-        await this.refreshTeamInsights();
-      } catch (error) {
-        console.error('Unable to update leave status', error);
-        const responsePayload = error.response && error.response.data ? error.response.data : {};
-        const message =
-          responsePayload.error ||
-          responsePayload.message ||
-          error.message ||
-          'Unable to update leave status right now.';
-        this.showToast(message, 'error');
+        // Optimistically update local list
+        this.pendingTeamLeaves = this.pendingTeamLeaves.filter(item => item.id !== leave.id)
+        this.teamLeaveSummary = {
+          ...this.teamLeaveSummary,
+          total: Math.max((this.teamLeaveSummary.total || 1) - 1, 0),
+          by_status: { ...(this.teamLeaveSummary.by_status || {}), pending: Math.max((this.teamLeaveSummary.by_status?.pending || 1) - 1, 0) },
+        }
       } finally {
         const next = { ...this.processingLeaves };
         delete next[leave.id];
