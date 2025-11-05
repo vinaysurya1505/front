@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="160" height="160" viewBox="0 0 160 160" xmlns="http://www.w3.org/2000/svg">
+  <title>Alveon Mark</title>
+  <g fill="none" stroke="#0f2738" stroke-width="10">
+    <circle cx="80" cy="80" r="65" />
+    <path d="M34 82c12-14 24-22 37-22 18 0 26 16 44 16 11 0 20-4 29-12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M34 95c12 11 25 17 38 17 19 0 29-10 44-10 10 0 18 3 25 8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

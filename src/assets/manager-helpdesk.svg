@@ -1,0 +1,19 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="helpdeskGradient" x1="10" y1="16" x2="86" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#4338CA"/>
+    </linearGradient>
+    <linearGradient id="helpdeskGloss" x1="28" y1="20" x2="68" y2="74" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="84" height="84" rx="24" fill="url(#helpdeskGradient)"/>
+  <circle cx="48" cy="48" r="26" fill="white" fill-opacity="0.12"/>
+  <path d="M34 50V46C34 38.268 40.268 32 48 32C55.732 32 62 38.268 62 46V50" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <path d="M34 48H30C27.7909 48 26 49.7909 26 52V56C26 58.2091 27.7909 60 30 60H34" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <path d="M62 48H66C68.2091 48 70 49.7909 70 52V56C70 58.2091 68.2091 60 66 60H62" stroke="white" stroke-width="4" stroke-linecap="round"/>
+  <rect x="42" y="64" width="12" height="8" rx="3" fill="white"/>
+  <rect x="20" y="20" width="56" height="56" rx="20" fill="url(#helpdeskGloss)"/>
+</svg>
