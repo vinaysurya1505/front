@@ -799,7 +799,6 @@ import axios from 'axios';
 import BrandLogo from '@/components/BrandLogo.vue';
 import db from '@/services/db';
 
-const API_BASE_URL = process.env.VUE_APP_API_BASE_URL || 'http://127.0.0.1:5000/api';
 const AUTH_HEADER = 'Authentication-Token';
 const PROJECT_ANNOUNCEMENT_STORAGE_KEY = 'employee:project-announcement';
 
@@ -1555,26 +1554,27 @@ export default {
       }
       this.submittingLeave = true;
       try {
-        await axios.post(
-          `${API_BASE_URL}/leave/apply`,
-          {
-            leave_type: this.leaveForm.leave_type,
-            start_date: this.leaveForm.start_date,
-            end_date: this.leaveForm.end_date,
-            reason: this.leaveForm.reason,
-          },
-          { withCredentials: true },
-        );
-        this.showToast('Leave request submitted.', 'success');
+        // Create a mock leave request entry
+        const rawUser = localStorage.getItem('currentUser');
+        let me = null;
+        try { me = rawUser ? JSON.parse(rawUser) : null } catch (_) { me = null }
+        const mockUserId = me?.id || 2; // fallback if no user
+        // In-memory for now (will reset if page reloads)
+        if (!db.leave_requests) db.leave_requests = [];
+        db.leave_requests.push({
+          id: db.leave_requests.length ? Math.max(...db.leave_requests.map(l => l.id)) + 1 : 1,
+          user_id: mockUserId,
+          leave_type: this.leaveForm.leave_type,
+          start_date: this.leaveForm.start_date,
+          end_date: this.leaveForm.end_date,
+          reason: this.leaveForm.reason,
+          status: 'pending'
+        });
+        this.showToast('Leave request submitted (dummy mode).', 'success');
         this.closeLeaveModal();
         await this.fetchManagerData();
       } catch (error) {
-        console.error('Failed to submit leave request', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to submit leave request.';
-        this.leaveFormError = message;
+        this.leaveFormError = 'Unable to submit leave request.';
       } finally {
         this.submittingLeave = false;
       }
@@ -1634,9 +1634,7 @@ export default {
     },
     async submitChatbotPrompt() {
       const prompt = (this.chatbotPrompt || '').trim();
-      if (!prompt) {
-        return;
-      }
+      if (!prompt) return;
       const userMessage = {
         sender: 'user',
         content: prompt,
@@ -1644,64 +1642,18 @@ export default {
       };
       this.chatHistory = [...this.chatHistory, userMessage];
       this.chatbotLoading = true;
-      try {
-        const response = await axios.post(
-          `${API_BASE_URL}/employee/chatbot`,
-          { message: prompt },
-          { withCredentials: true },
-        );
-        const payload = response.data || {};
-        const normalize = (entry) => ({
-          sender: entry.sender || 'assistant',
-          content: entry.content || '',
-          timestamp: entry.timestamp || new Date().toISOString(),
-        });
-        if (Array.isArray(payload.messages) && payload.messages.length) {
-          this.chatHistory = payload.messages.map(normalize);
-        } else {
-          const assistantMessage = normalize({
-            sender: 'assistant',
-            content: payload.response || 'HR bot has recorded your message.',
-          });
-          this.chatHistory = [...this.chatHistory, assistantMessage];
-        }
-        this.chatbotReply =
-          payload.response ||
-          (Array.isArray(payload.messages)
-            ? payload.messages
-                .filter((entry) => entry.sender !== 'user')
-                .map((entry) => entry.content)
-                .filter(Boolean)
-                .pop() || ''
-            : '');
-        this.chatbotStatus = payload.status || '';
-        this.chatbotReference = payload.reference || '';
-        this.chatbotTicketId = payload.question_log_id || null;
-        if (this.chatbotStatus === 'pending') {
-          this.showToast('Your question has been escalated to HR. We will follow up soon.', 'info');
-        }
+      setTimeout(() => {
+        const reply = 'hii how can i help you this is dummy reply';
+        const assistantMessage = {
+          sender: 'assistant',
+          content: reply,
+          timestamp: new Date().toISOString(),
+        };
+        this.chatHistory = [...this.chatHistory, assistantMessage];
+        this.chatbotReply = reply;
         this.chatbotPrompt = '';
-      } catch (error) {
-        console.error('Chatbot request failed', error);
-        const message =
-          (error.response && (error.response.data?.error || error.response.data?.message)) ||
-          error.message ||
-          'Unable to send message right now.';
-        this.showToast(message, 'error');
-        this.chatbotStatus = 'error';
-        this.chatbotReference = '';
-        this.chatbotTicketId = null;
-        this.chatHistory = [
-          ...this.chatHistory,
-          {
-            sender: 'assistant',
-            content: 'Something went wrong while reaching HR. Please try again shortly.',
-            timestamp: new Date().toISOString(),
-          },
-        ];
-      } finally {
         this.chatbotLoading = false;
-      }
+      }, 500);
     },
     openCareerModal() {
       this.careerFormError = '';

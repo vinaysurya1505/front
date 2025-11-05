@@ -223,6 +223,17 @@
               </div>
             </li>
           </ul>
+          <div v-if="surveys.length" class="surveys-list mt-6">
+            <h4>Saved Surveys</h4>
+            <div v-for="(survey, idx) in surveys" :key="survey.created_at" class="survey-item">
+              <strong>{{ survey.title }}</strong>
+              <p v-if="survey.description">{{ survey.description }}</p>
+              <ul>
+                <li v-for="(q, i) in survey.questions" :key="i">{{ q }}</li>
+              </ul>
+              <button type="button" @click="removeSurvey(idx)" class="ghost" style="margin-top: 6px;">Delete</button>
+            </div>
+          </div>
         </template>
       </section>
 
@@ -611,6 +622,7 @@ export default {
       profileRole: 'Super Admin',
       toast: null,
       toastTimer: null,
+      surveys: [],
     }
   },
   computed: {
@@ -706,6 +718,7 @@ export default {
   created() {
     this.loadUserFromStorage()
     this.bootstrap()
+    this.loadSurveys()
   },
   beforeUnmount() {
     if (this.toastTimer) {
@@ -921,6 +934,16 @@ export default {
       this.surveySubmitting = true
       this.surveyError = ''
       setTimeout(() => {
+        // Create new survey object
+        const newSurvey = {
+          title: this.surveyForm.title,
+          description: this.surveyForm.description,
+          audience: this.surveyForm.audience,
+          questions: lines,
+          created_at: new Date().toISOString()
+        };
+        this.surveys.push(newSurvey);
+        this.saveSurveys();
         this.showToast('Survey published to Employee and Manager dashboards.', 'success')
         this.closeSurveyModal()
         this.surveySubmitting = false
@@ -1085,6 +1108,25 @@ export default {
         delete axios.defaults.headers.common[AUTH_HEADER]
         this.$router.push({ name: 'HomePage' })
       }
+    },
+    loadSurveys() {
+      try {
+        const raw = localStorage.getItem('hr:surveys');
+        this.surveys = raw ? JSON.parse(raw) : [];
+      } catch (e) {
+        this.surveys = [];
+      }
+    },
+    saveSurveys() {
+      try {
+        localStorage.setItem('hr:surveys', JSON.stringify(this.surveys));
+      } catch (e) {
+        // ignore quota exceeded
+      }
+    },
+    removeSurvey(idx) {
+      this.surveys.splice(idx, 1);
+      this.saveSurveys();
     },
   },
 }

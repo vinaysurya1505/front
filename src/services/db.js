@@ -1,58 +1,46 @@
 const db = {
   roles: [
     { id: 1, name: 'super_admin' },
-    { id: 2, name: 'admin' },
-    { id: 3, name: 'employee' },
-    { id: 4, name: 'manager' }
+    { id: 2, name: 'manager' },
+    { id: 3, name: 'employee' }
   ],
 
   users: [
     {
       id: 1,
-      username: 'superadmin',
-      email: 'superadmin@example.com',
-      first_name: 'Alex',
-      last_name: 'Johnson',
+      username: 'rajesh',
+      email: 'rajesh@alveon.com',
+      first_name: 'Rajesh',
+      last_name: 'Kumar',
       employment_role: 'super_admin',
       roles: ['super_admin'],
-      department: 'Global Operations',
-      organization: 'TechCorp HQ',
-      is_verified: true
-    },
-    {
-      id: 2,
-      username: 'admin1',
-      email: 'admin1@example.com',
-      first_name: 'Priya',
-      last_name: 'Singh',
-      employment_role: 'admin',
-      roles: ['admin'],
       department: 'HR',
-      organization: 'TechCorp',
+      organization: 'Alveon HQ',
       is_verified: true
     },
+    
     {
       id: 3,
-      username: 'manager1',
-      email: 'manager01@techcorp.com',
-      first_name: 'John',
-      last_name: 'Doe',
+      username: 'akshay',
+      email: 'akshay@alveon.com',
+      first_name: 'Akshay',
+      last_name: 'Kumar',
       employment_role: 'manager',
       roles: ['manager'],
       department: 'Engineering',
-      organization: 'TechCorp',
+      organization: 'Alveon',
       is_verified: true
     },
     {
       id: 4,
-      username: 'employee1',
-      email: 'employee01@techcorp.com',
-      first_name: 'Jane',
-      last_name: 'Smith',
+      username: 'vinay',
+      email: 'vinay@alveon.com',
+      first_name: 'Vinay',
+      last_name: 'Kumar',
       employment_role: 'employee',
       roles: ['employee'],
       department: 'Engineering',
-      organization: 'TechCorp',
+      organization: 'Alveon',
       is_verified: true
     }
   ],
