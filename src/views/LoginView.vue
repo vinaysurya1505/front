@@ -9,6 +9,12 @@ const router = useRouter()
 
 const email = ref('')
 const password = ref('')
+const selectedRole = ref('');
+const availableRoles = [
+  { label: 'HR (Super Admin)', value: 'super_admin' },
+  { label: 'Manager', value: 'manager' },
+  { label: 'Employee', value: 'employee' }
+];
 const errorMessage = ref('')
 const isLoading = ref(false)
 
@@ -25,6 +31,10 @@ const handleLogin = async () => {
     errorMessage.value = 'Please fill in email and password.'
     return
   }
+  if (!selectedRole.value) {
+    errorMessage.value = 'Please select a role from the dropdown.'
+    return
+  }
 
   isLoading.value = true
 
@@ -33,6 +43,33 @@ const handleLogin = async () => {
     const user = findUserByEmail(email.value)
     if (!user) {
       errorMessage.value = 'No user found for this email.'
+      return
+    }
+
+    const roles = Array.isArray(user.roles) ? user.roles : []
+    const isSuperAdmin = roles.includes('super_admin')
+    const isManager = user.employment_role === 'manager' && !isSuperAdmin
+    const isEmployee = user.employment_role === 'employee' && !isSuperAdmin
+    const roleMap = {
+      super_admin: 'HrDashboard',
+      manager: 'ManagerDashboard',
+      employee: 'EmployeeDashboard'
+    }
+    // Role check logic
+    if (isSuperAdmin) {
+      // Allow to log in as any role
+      if (!selectedRole.value || !roleMap[selectedRole.value]) {
+        errorMessage.value = 'Select a valid role.'
+        return
+      }
+    } else if (
+      (isManager && selectedRole.value !== 'manager') ||
+      (isEmployee && selectedRole.value !== 'employee')
+    ) {
+      errorMessage.value = 'You are only permitted to log in as your designated role.'
+      return
+    } else if (!isManager && !isEmployee && !isSuperAdmin) {
+      errorMessage.value = 'Your account does not have permission for this role.'
       return
     }
 
@@ -46,30 +83,7 @@ const handleLogin = async () => {
       console.warn('Unable to cache user details locally', storageError)
     }
 
-    const roles = Array.isArray(user.roles) ? user.roles : []
-    const isSuperAdmin = roles.includes('super_admin')
-    const isAdmin = roles.includes('admin')
-    const isManager = user.employment_role === 'manager' && !isAdmin && !isSuperAdmin
-    const isEmployee = user.employment_role === 'employee' && !isAdmin && !isSuperAdmin
-
-    if (isSuperAdmin) {
-      router.push({ name: 'HrDashboard' })
-      return
-    }
-    if (isManager) {
-      router.push({ name: 'ManagerDashboard' })
-      return
-    }
-    if (isEmployee) {
-      router.push({ name: 'EmployeeDashboard' })
-      return
-    }
-    if (isAdmin) {
-      router.push({ name: 'HomePage' })
-      return
-    }
-
-    router.push({ name: 'HomePage' })
+    router.push({ name: roleMap[selectedRole.value] })
   } finally {
     isLoading.value = false
   }
@@ -91,6 +105,14 @@ const handleLogin = async () => {
         <label class="input-group">
           <span>Password</span>
           <input v-model="password" type="password" placeholder="Enter password" required />
+        </label>
+
+        <label class="input-group">
+          <span>Role</span>
+          <select v-model="selectedRole" required>
+            <option value="">Select role</option>
+            <option v-for="r in availableRoles" :key="r.value" :value="r.value">{{ r.label }}</option>
+          </select>
         </label>
 
         <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
